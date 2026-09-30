@@ -1,0 +1,58 @@
+name: Android Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build Android
+        run: pnpm --dir apps/mobile build:android
+
+      - name: Find APK/AAB
+        id: find_artifact
+        run: |
+          ARTIFACT=$(find dist/android -type f \( -name "*.apk" -o -name "*.aab" \) | head -n 1)
+          echo "artifact_path=$ARTIFACT" >> $GITHUB_OUTPUT
+          if [ -z "$ARTIFACT" ]; then
+            echo "::error ::No APK/AAB found in dist/android/"
+            exit 1
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openmuse-android-${{ github.sha }}
+          path: ${{ steps.find_artifact.outputs.artifact_path }}
+
+      - name: Create Release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="openmuse-android-${{ github.sha }}"
+          gh release create "$TAG" \
+            --title "OpenMuse Android ${{ github.sha }}" \
+            --notes "Built via GitHub Actions from commit ${{ github.sha }}" \
+            "${{ steps.find_artifact.outputs.artifact_path }}"
